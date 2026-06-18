@@ -19,7 +19,7 @@
       "id": "edit",
       "name": "Edit Image",
       "input": "text",
-      "inputs": ["text"],
+      "inputs": ["text", "image"],
       "output": "image",
       "hf_repo": "calcuis/qwen-image-edit-gguf",
       "download_check": "model_index.json",
