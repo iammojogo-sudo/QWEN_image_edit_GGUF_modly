@@ -1,0 +1,75 @@
+{
+  "id": "qwen_image_edit_gguf",
+  "name": "Qwen-Image-Edit (GGUF) Image Edit",
+  "type": "model",
+  "source": "https://github.com/iammojogo-sudo/qwen_image_edit_modly",
+  "description": "Instruction-based image editing with Alibaba's Qwen-Image-Edit, loaded as a 4-bit GGUF transformer so it fits consumer GPUs. Feed one image plus a text instruction (e.g. 'rotate the object 180 degrees to show the back', 'side profile view') and get edited image(s) out. Apache-2.0 and ungated — no HuggingFace login or license click. 20B model: runs on ~12GB via the streaming Low VRAM mode (slow), down to ~6-8GB with enough system RAM.",
+  "version": "1.0.0",
+  "author": "iammojogo",
+  "vram_gb": 8,
+  "tags": [
+    "image-to-image",
+    "image-editing",
+    "qwen",
+    "gguf",
+    "i2i"
+  ],
+  "nodes": [
+    {
+      "id": "edit",
+      "name": "Edit Image",
+      "input": "text",
+      "inputs": ["text"],
+      "output": "image",
+      "hf_repo": "calcuis/qwen-image-edit-gguf",
+      "download_check": "model_index.json",
+      "params_schema": [
+        {
+          "id": "memory_mode",
+          "label": "Memory Mode",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            { "value": "auto",      "label": "Auto (pick by VRAM)" },
+            { "value": "low_vram",  "label": "Low VRAM (streamed, ~6-12GB, slow)" },
+            { "value": "balanced",  "label": "Balanced (offload, ~16GB+)" },
+            { "value": "max_speed", "label": "Max Speed (on GPU, ~24GB+)" }
+          ]
+        },
+        {
+          "id": "steps",
+          "label": "Steps",
+          "type": "int",
+          "default": 40,
+          "min": 10,
+          "max": 50
+        },
+        {
+          "id": "true_cfg_scale",
+          "label": "CFG Scale",
+          "type": "float",
+          "default": 4.0,
+          "min": 1,
+          "max": 10
+        },
+        {
+          "id": "num_images",
+          "label": "Number of Outputs",
+          "type": "int",
+          "default": 1,
+          "min": 1,
+          "max": 4
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 4294967295
+        }
+      ]
+    }
+  ],
+  "generator_class": "QwenImageEditGenerator"
+}

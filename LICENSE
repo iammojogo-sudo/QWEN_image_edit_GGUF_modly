@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 iammojogo-sudo
+Copyright (c) 2026 iammojogo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+NOTE ON THIRD-PARTY MODEL WEIGHTS
+
+This license applies only to the code in this repository. It does not apply to
+the Qwen-Image-Edit model weights (or their GGUF quantizations), which this
+software downloads at runtime and does not include or redistribute. Those
+weights are produced by Alibaba's Qwen team and are licensed under Apache 2.0:
+https://huggingface.co/Qwen/Qwen-Image-Edit
+
+Apache 2.0 permits commercial use; review the license text for the full terms.
