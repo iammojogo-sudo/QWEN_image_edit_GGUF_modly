@@ -30,10 +30,22 @@
           "type": "select",
           "default": "auto",
           "options": [
-            { "value": "auto",      "label": "Auto (pick by VRAM)" },
-            { "value": "low_vram",  "label": "Low VRAM (streamed, ~6-12GB, slow)" },
-            { "value": "balanced",  "label": "Balanced (offload, ~16GB+)" },
-            { "value": "max_speed", "label": "Max Speed (on GPU, ~24GB+)" }
+            { "value": "auto",      "label": "Auto (model CPU offload)" },
+            { "value": "balanced",  "label": "Offload (model CPU offload)" },
+            { "value": "max_speed", "label": "Max Speed (no offload, 24GB+)" }
+          ]
+        },
+        {
+          "id": "gguf_quant",
+          "label": "Transformer Quant",
+          "type": "select",
+          "default": "q3_k_m",
+          "options": [
+            { "value": "q2_k",   "label": "Q2_K  · 7GB  (8-12GB, lowest quality)" },
+            { "value": "q3_k_m", "label": "Q3_K_M · 9GB  (12GB) — default" },
+            { "value": "q4_k_m", "label": "Q4_K_M · 12GB (16GB)" },
+            { "value": "q5_k_m", "label": "Q5_K_M · 14GB (16-24GB)" },
+            { "value": "q8_0",   "label": "Q8_0  · 22GB (24GB+)" }
           ]
         },
         {
