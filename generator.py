@@ -15,9 +15,19 @@ def print(*args, **kwargs):
     kwargs.setdefault("file", sys.stderr)
     _print(*args, **kwargs)
 
-# 4-bit GGUF transformer weights (diffusers-loadable) ...
+# 4-bit/low-bit GGUF transformer weights (diffusers-loadable), selectable by quant.
+# Sizes are for the 20B transformer; pick one that leaves headroom on your GPU since
+# model CPU offload puts the whole transformer on the GPU during denoising.
 GGUF_REPO = "calcuis/qwen-image-edit-gguf"
-GGUF_FILE = "qwen-image-edit-iq4_nl.gguf"
+GGUF_QUANTS = {
+    "q2_k":   "qwen-image-edit-q2_k.gguf",    # ~7.1 GB  (8-12GB cards, lowest quality)
+    "q3_k_m": "qwen-image-edit-q3_k_m.gguf",  # ~9.1 GB  (12GB cards) [default]
+    "q4_k_m": "qwen-image-edit-q4_k_m.gguf",  # ~11.7 GB (16GB cards)
+    "q5_k_m": "qwen-image-edit-q5_k_m.gguf",  # ~14.2 GB (16-24GB cards)
+    "q8_0":   "qwen-image-edit-q8_0.gguf",    # ~21.8 GB (24GB+ cards)
+}
+DEFAULT_QUANT = "q3_k_m"
+
 # ... paired with the "decoder" bundle that holds the VAE, text encoder, tokenizer,
 # processor, scheduler and the transformer config the GGUF weights plug into.
 DECODER_REPO = "callgg/image-edit-decoder"
@@ -42,10 +52,14 @@ def _float(val, default):
 class QwenImageEditGenerator(BaseGenerator):
     MODEL_ID     = "qwen_image_edit_gguf"
     DISPLAY_NAME = "Qwen-Image-Edit (GGUF) Image Edit"
-    VRAM_GB      = 8
+    VRAM_GB      = 12
+
+    def _gguf_filename(self):
+        q = (getattr(self, "_quant", None) or DEFAULT_QUANT)
+        return GGUF_QUANTS.get(q, GGUF_QUANTS[DEFAULT_QUANT])
 
     def is_downloaded(self):
-        gguf_ok = (self.model_dir / GGUF_FILE).exists()
+        gguf_ok = (self.model_dir / self._gguf_filename()).exists()
         decoder_ok = (self.model_dir / "model_index.json").exists()
         # The Qwen2 tokenizer needs tokenizer/merges.txt. Guard against a partial
         # download missing it so it gets re-fetched instead of failing at load.
@@ -55,8 +69,10 @@ class QwenImageEditGenerator(BaseGenerator):
     # ------------------------------------------------------------------ loading
     def load(self):
         mode = getattr(self, "_mem_mode", None) or "auto"
+        quant = getattr(self, "_quant", None) or DEFAULT_QUANT
+        state = (mode, quant)
 
-        if self._model is not None and getattr(self, "_loaded_mode", None) == mode:
+        if self._model is not None and getattr(self, "_loaded_state", None) == state:
             return
         if self._model is not None:
             self.unload()
@@ -75,11 +91,12 @@ class QwenImageEditGenerator(BaseGenerator):
         self._dtype = torch.bfloat16 if self._device == "cuda" else torch.float32
 
         resolved = self._resolve_mode(mode)
-        print("[Qwen] loading (%s) GGUF=%s" % (resolved, GGUF_FILE))
+        gguf_file = self._gguf_filename()
+        print("[Qwen] loading (%s) GGUF=%s" % (resolved, gguf_file))
 
         try:
             transformer = QwenImageTransformer2DModel.from_single_file(
-                str(self.model_dir / GGUF_FILE),
+                str(self.model_dir / gguf_file),
                 quantization_config=GGUFQuantizationConfig(compute_dtype=self._dtype),
                 torch_dtype=self._dtype,
                 config=str(self.model_dir),
@@ -92,10 +109,11 @@ class QwenImageEditGenerator(BaseGenerator):
                 "(pip install -U diffusers), then retry." % e
             )
 
-        # Optional 4-bit text encoder so the 7B encoder fits alongside the transformer
-        # in 'balanced' mode. Best-effort: any failure falls back to the default encoder.
+        # 4-bit the Qwen2.5-VL text encoder. The bf16 encoder is ~15GB and would
+        # OOM most consumer GPUs on its own; 4-bit brings it to ~5GB. Best-effort:
+        # any failure falls back to the default encoder (needs a big GPU).
         text_encoder = None
-        if resolved == "balanced":
+        if self._device == "cuda":
             text_encoder = self._load_4bit_text_encoder(torch)
 
         kwargs = dict(torch_dtype=self._dtype, local_files_only=True)
@@ -109,12 +127,13 @@ class QwenImageEditGenerator(BaseGenerator):
         )
 
         if self._device == "cuda":
+            # NOTE: GGUF transformers are NOT compatible with
+            # enable_sequential_cpu_offload() (it rebuilds params on the meta device
+            # and loses the GGUF quant type). Only model CPU offload / full GPU work.
             if resolved == "max_speed":
                 pipe.to("cuda")
-            elif resolved == "balanced":
+            else:  # balanced (default)
                 pipe.enable_model_cpu_offload()
-            else:  # low_vram -> per-layer streaming, smallest footprint
-                pipe.enable_sequential_cpu_offload()
             try:
                 pipe.vae.enable_tiling()
                 pipe.vae.enable_slicing()
@@ -130,26 +149,15 @@ class QwenImageEditGenerator(BaseGenerator):
             pass
 
         self._model = pipe
-        self._loaded_mode = mode
+        self._loaded_state = state
         print("[Qwen] ready on %s" % self._device)
 
     def _resolve_mode(self, mode):
         mode = (mode or "auto").strip().lower()
-        if mode != "auto":
+        if mode in ("balanced", "max_speed"):
             return mode
-        try:
-            import torch
-            if not torch.cuda.is_available():
-                return "low_vram"
-            _free_b, total_b = torch.cuda.mem_get_info()
-            total_gb = total_b / (1024 ** 3)
-            if total_gb >= 24:
-                return "balanced"
-            if total_gb >= 16:
-                return "balanced"
-            return "low_vram"
-        except Exception:
-            return "low_vram"
+        # auto, or any legacy value (e.g. the old "low_vram"), maps to model offload
+        return "balanced"
 
     def _load_4bit_text_encoder(self, torch):
         try:
@@ -180,7 +188,7 @@ class QwenImageEditGenerator(BaseGenerator):
         self._model = None
         self._device = None
         self._dtype = None
-        self._loaded_mode = None
+        self._loaded_state = None
         try:
             import torch
             if torch.cuda.is_available():
@@ -208,8 +216,10 @@ class QwenImageEditGenerator(BaseGenerator):
 
         params = params or {}
         self._mem_mode = params.get("memory_mode") or "auto"
+        self._quant = (params.get("gguf_quant") or DEFAULT_QUANT)
 
-        if self._model is None or getattr(self, "_loaded_mode", None) != self._mem_mode:
+        _state = (self._mem_mode, self._quant)
+        if self._model is None or getattr(self, "_loaded_state", None) != _state:
             self.load()
 
         prompt = ""
@@ -315,11 +325,12 @@ class QwenImageEditGenerator(BaseGenerator):
             ],
         )
 
-        # 2) the 4-bit GGUF transformer weights
-        print("[Qwen] downloading %s from %s" % (GGUF_FILE, GGUF_REPO))
+        # 2) the selected GGUF transformer weights
+        gguf_file = self._gguf_filename()
+        print("[Qwen] downloading %s from %s" % (gguf_file, GGUF_REPO))
         hf_hub_download(
             repo_id=GGUF_REPO,
-            filename=GGUF_FILE,
+            filename=gguf_file,
             local_dir=str(self.model_dir),
         )
 
