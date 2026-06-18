@@ -47,7 +47,10 @@ class QwenImageEditGenerator(BaseGenerator):
     def is_downloaded(self):
         gguf_ok = (self.model_dir / GGUF_FILE).exists()
         decoder_ok = (self.model_dir / "model_index.json").exists()
-        return gguf_ok and decoder_ok
+        # The Qwen2 tokenizer needs tokenizer/merges.txt. Guard against a partial
+        # download missing it so it gets re-fetched instead of failing at load.
+        tok_ok = (self.model_dir / "tokenizer" / "merges.txt").exists()
+        return gguf_ok and decoder_ok and tok_ok
 
     # ------------------------------------------------------------------ loading
     def load(self):
@@ -209,9 +212,14 @@ class QwenImageEditGenerator(BaseGenerator):
         if self._model is None or getattr(self, "_loaded_mode", None) != self._mem_mode:
             self.load()
 
-        prompt = (params.get("prompt") or "").strip()
+        prompt = ""
+        for _k in ("prompt", "text", "instruction", "negative_prompt"):
+            _v = params.get(_k)
+            if _v and str(_v).strip():
+                prompt = str(_v).strip()
+                break
         if not prompt:
-            raise ValueError("no edit instruction — connect a Text node to the Edit node")
+            raise ValueError("no edit instruction — connect a Text node to the Edit node's text input")
 
         image = self._to_pil(image_bytes)
 
@@ -304,7 +312,6 @@ class QwenImageEditGenerator(BaseGenerator):
                 "transformer/*.safetensors",
                 "transformer/*.bin",
                 "transformer/*.gguf",
-                "*.md", "*.txt", ".gitattributes",
             ],
         )
 
